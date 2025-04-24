@@ -1,0 +1,32 @@
+the upgradation K8s will be done in a sequential way i.e. if currently we are in 1.28.15 we cant jump directly to 1.33.0
+we need to upgrade to 1.29.15 and the series and in a sequential way we can reach 1.33.0
+the 1.33.0 K8s will also doesnt accept,it will accept only the upgradation from 1.32.0 and series only.
+
+The commands to upgrade are:
+use the following commands in master node to upgrade the control plane firstly. (chane the req series u wanted in the commands)
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt-get update
+sudo apt-mark unhold kubelet kubeadm kubectl    (this command is used to allow the cluster to upgrade,otherwise it will put u in hold)
+sudo apt-get install -y kubelet=1.29.* kubeadm=1.29.* kubectl=1.29.*
+then kubectl get nodes and check its upgraded or not.
+
+then proceed upgradation of worker nodes
+kubectl drain <node-name> --ignore-daemonset --deleteemptydir-data (do it in master node)  (this command is used to kill the pods in the worker node)
+kubectl cordon <node-name>
+
+after all this go to the specific node that u have drained and perform upgrade on the kubectl kubeadm and kubelet
+apply following commands:
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt-get update
+sudo apt-mark unhold kubelet kubeadm kubectl    (this command is used to allow the cluster to upgrade,otherwise it will put u in hold)
+sudo apt-get install -y kubelet=1.29.* kubeadm=1.29.* kubectl=1.29.*
+sudo systemctl daemon-upload
+sudo systemctl restart kubelet
+kubectl uncordon <node-name> (do it in master-node)
+then kubectl get nodes and check its upgraded or not in master-node
+
+do the same process for the rest of the worker nodes as well.
