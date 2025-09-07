@@ -14,7 +14,7 @@ then kubectl get nodes and check its upgraded or not.
 
 then proceed upgradation of worker nodes
 kubectl drain <node-name> --ignore-daemonset --deleteemptydir-data (do it in master node)  (this command is used to kill the pods in the worker node)
-kubectl cordon <node-name>
+kubectl cordon <node-name>      ( The kubectl cordon command in Kubernetes is used to mark a specified node as "unschedulable." This action prevents new pods from being scheduled onto that node by the Kubernetes scheduler. )
 
 after all this go to the specific node that u have drained and perform upgrade on the kubectl kubeadm and kubelet
 apply following commands:
