@@ -1,0 +1,61 @@
+EKS CLUSTER UPGRADATION USING TERRAFORM:
+
+High-level rules:
+Upgrade one minor version at a time (don’t jump directly 1.29 → 1.32). Perform 1.29→1.30, validate, then 1.30→1.31, etc. This reduces API/CRD incompatibilities. 
+
+Upgrade order: Control plane → cluster add-ons (vpc-cni, CoreDNS, kube-proxy, others) → nodegroups (workers) → workloads. This minimizes breakage. 
+
+Always have a tested rollback or snapshot plan. Control-plane upgrade cannot be paused once started; AWS may revert automatically on failure but you must be prepared. 
+
+1) Plan & Prechecks (prep work — do these first):
+
+  a) Read EKS release notes for each intermediate target version (1.30, 1.31, 1.32) and note deprecated.Update manifests/Helm charts accordingly.
+  b) Take backups:Export cluster manifests,snapshot any persistent volumes where necessary.
+  c)  List all cluster components & versions: 
+      kubectl get nodes,   kubectl get pods -A,    kubectl get ds -A,    kubectl get crd and note versions of CoreDNS, kube-proxy, aws-node (VPC CNI), cluster-autoscaler, and any operators.(You’ll upgrade add-ons per AWS guidance)
+  d)  Create a test/staging cluster (if possible) and run the same upgrade sequence there first. Always test Helm charts on the target Kubernetes versions.
+
+2) Prepare manifests & workloads:
+  a)  Upgrade Helm charts & manifests so they do not use deprecated APIs (Ingress → networking.k8s.io/v1, apps/v1 for Deployments, etc.)Use kubectl apply --dry-run=client
+  b)  Prefer to upgrade a non-production cluster first, then production during low traffic hours.
+      If you have multiple AWS accounts/environments, upgrade dev → staging → prod.
+
+3) Upgrade the control plane (via Terraform)
+  a)  Change the cluster Kubernetes version in your Terraform variables (e.g. cluster_version = "1.30" for first step)update the version attribute.
+    resource "aws_eks_cluster" "this" {
+    name    = var.cluster_name
+    version = "1.30"
+    ...
+   }
+  b)  terraform plan → terraform apply — this will request the control plane upgrade. Note: AWS performs the control plane upgrade; Terraform updates the resource metadata
+
+  c)  Wait until control plane shows new version (kubectl version --short against cluster endpoint). AWS notes you can’t pause the upgrade once started. Monitor for any automatic reverts.
+
+4) Upgrade cluster-managed add-ons (important: order matters)
+
+  Upgrade add-ons after the control plane and before node upgrades. 
+  The recommended order is typically VPC CNI (aws-node) → CoreDNS → kube-proxy → other add-ons (cluster-autoscaler, metrics-server, etc.). This ensures networking is compatible first.
+  If you manage add-ons via Terraform, update aws_eks_addon versions in TF and terraform apply.
+
+  Verify pods get new versions and are Ready: kubectl get pods -n kube-system -l k8s-app=aws-node and similar for coredns/kube-proxy.
+
+5) Upgrade nodegroups (workers)
+   After addons are upgraded and stable, upgrade worker nodes. For each minor upgrade step:
+
+   In Terraform, update the node group version or update the launch template/AMI (EKS optimized AMI) to the recommended AMI for the target k8s version.
+   Drain each node before termination (Terraform-managed replace usually handles, but consider kubectl drain --ignore-daemonsets --delete-local-data <node> if manual).
+
+6) Upgrade Helm charts to versions that are compatible with the new k8s API. Use helm upgrade --install and test.   Consider helm diff plugin to preview changes.
+  Run smoke tests and end-to-end tests.
+ 
+7)Monitoring & alerts: Verify Prometheus/Datadog metrics, autoscaling behavior, and logging pipelines are healthy.
+
+8)Post-upgrade cleanup & hardening: 
+   Update Terraform code to reflect the new versions permanently (if not done already).
+   Run a final terraform apply to ensure infra matches code.
+
+9)  Rollback considerations (what to do if things go wrong):
+   Control plane: AWS may rollback automatically if the control plane upgrade fails. If it proceeds but breaks workloads, you will need to rollback workloads or restore from backups. Control plane downgrade by user is not supported — you must restore from backups or restore a previous cluster snapshot
+
+Node rollback: You can roll nodes back by replacing nodegroups with prior AMIs / launch templates and schedule pods back.
+
